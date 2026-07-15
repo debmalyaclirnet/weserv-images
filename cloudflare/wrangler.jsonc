@@ -1,0 +1,53 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "weserv-images",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-01",
+
+  // The Worker in src/index.ts fronts the container and forwards every
+  // request to it. weserv/images is a stateless image proxy, so requests are
+  // spread across a small pool of interchangeable instances (see INSTANCES in
+  // src/index.ts — keep it <= max_instances below).
+  "containers": [
+    {
+      "class_name": "WeservContainer",
+      // Build the image from this repo's source using cloudflare/Dockerfile.
+      // The build context is the repository root so the Dockerfile's
+      // `COPY . /var/www/imagesweserv` sees the full source tree, exactly like
+      // `docker build -f docker/Dockerfile .`.
+      "image": "./Dockerfile",
+      "image_build_context": "..",
+      // 1 vCPU, 6 GiB RAM, 12 GB disk — headroom for concurrent libvips work.
+      "instance_type": "standard-2",
+      "max_instances": 5
+    }
+  ],
+
+  "durable_objects": {
+    "bindings": [
+      {
+        "class_name": "WeservContainer",
+        "name": "WESERV_CONTAINER"
+      }
+    ]
+  },
+
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["WeservContainer"]
+    }
+  ],
+
+  // Keep-warm: the scheduled() handler in src/index.ts pings every instance so
+  // they stay provisioned and never scale to zero (avoids cold-start failures
+  // and rides out flaky provisioning). Runs every 2 minutes; sleepAfter (15m in
+  // src/index.ts) is comfortably longer, so instances stay warm between ticks.
+  "triggers": {
+    "crons": ["*/2 * * * *"]
+  },
+
+  "observability": {
+    "enabled": true
+  }
+}
